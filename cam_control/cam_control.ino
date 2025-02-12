@@ -2,11 +2,6 @@
   Rui Santos
   Complete project details at https://RandomNerdTutorials.com/esp32-cam-take-photo-display-web-server/
   
-  IMPORTANT!!! 
-   - Select Board "AI Thinker ESP32-CAM"
-   - GPIO 0 must be connected to GND to upload a sketch
-   - After connecting GPIO 0 to GND, press the ESP32-CAM on-board RESET button to put your board in flashing mode
-  
   The above copyright notice and this permission notice shall be included in all
   copies or substantial portions of the Software.
 *********/
@@ -16,8 +11,8 @@
 #include "esp_timer.h"
 #include "img_converters.h"
 #include "Arduino.h"
-#include "soc/soc.h"           // Disable brownour problems
-#include "soc/rtc_cntl_reg.h"  // Disable brownour problems
+#include "soc/soc.h"           // Disable brownout problems
+#include "soc/rtc_cntl_reg.h"  // Disable brownout problems
 #include "driver/rtc_io.h"
 #include <ESPAsyncWebServer.h>
 #include <SPIFFS.h>
@@ -34,6 +29,12 @@ boolean takeNewPhoto = false;
 
 // Photo File Name to save in SPIFFS
 #define FILE_PHOTO "/photo.jpg"
+
+// Button Interrupts
+boolean isButtonPressed = false;
+// Flash
+boolean toggleFlash = false;
+uint8_t isFlashOn = 1;
 
 // OV2640 camera module pins (CAMERA_MODEL_AI_THINKER)
 #define PWDN_GPIO_NUM     32
@@ -53,6 +54,8 @@ boolean takeNewPhoto = false;
 #define HREF_GPIO_NUM     23
 #define PCLK_GPIO_NUM     22
 
+#define FLASH_PIN         4
+
 const char index_html[] PROGMEM = R"rawliteral(
 <!DOCTYPE HTML><html>
 <head>
@@ -71,6 +74,8 @@ const char index_html[] PROGMEM = R"rawliteral(
       <button onclick="rotatePhoto();">ROTATE</button>
       <button onclick="capturePhoto()">CAPTURE PHOTO</button>
       <button onclick="location.reload();">REFRESH PAGE</button>
+      <button onclick="toggleFlash();">TOGGLE FLASH</button>
+
     </p>
   </div>
   <div><img src="saved-photo" id="photo" width="70%"></div>
@@ -80,6 +85,11 @@ const char index_html[] PROGMEM = R"rawliteral(
   function capturePhoto() {
     var xhr = new XMLHttpRequest();
     xhr.open('GET', "/capture", true);
+    xhr.send();
+  }
+  function toggleFlash() {
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', "/flash", true);
     xhr.send();
   }
   function rotatePhoto() {
@@ -119,6 +129,10 @@ void setup() {
   // Turn-off the 'brownout detector'
   WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0);
 
+  // Flash Setup
+  pinMode(FLASH_PIN, OUTPUT);
+  digitalWrite(FLASH_PIN, LOW);
+
   // OV2640 camera module
   camera_config_t config;
   config.ledc_channel = LEDC_CHANNEL_0;
@@ -139,7 +153,8 @@ void setup() {
   config.pin_sccb_scl = SIOC_GPIO_NUM;
   config.pin_pwdn = PWDN_GPIO_NUM;
   config.pin_reset = RESET_GPIO_NUM;
-  config.xclk_freq_hz = 20000000;
+  //config.xclk_freq_hz = 20000000; //Base Freq
+  config.xclk_freq_hz = 16000000;
   config.pixel_format = PIXFORMAT_JPEG;
 
   if (psramFound()) {
@@ -172,6 +187,11 @@ void setup() {
     request->send(SPIFFS, FILE_PHOTO, "image/jpg", false);
   });
 
+  server.on("/flash", HTTP_GET, [](AsyncWebServerRequest * request) {
+    toggleFlash = true;
+    request->send(200, "text/plain", "Toggling Flash");
+  });
+
   // Start server
   server.begin();
 
@@ -182,8 +202,20 @@ void loop() {
     capturePhotoSaveSpiffs();
     takeNewPhoto = false;
   }
+  if (toggleFlash) {
+    if (isFlashOn) {
+      digitalWrite(FLASH_PIN, HIGH);
+      Serial.println("Flash is ON"); 
+    } else {
+      digitalWrite(FLASH_PIN, LOW);
+      Serial.println("Flash is OFF"); 
+    }
+    isFlashOn = 1 - isFlashOn;
+    toggleFlash = false;
+  }
   delay(1);
 }
+
 
 // Check if photo capture was successful
 bool checkPhoto( fs::FS &fs ) {
