@@ -30,7 +30,7 @@ boolean takeNewPhoto = false;
 // Photo File Name to save in SPIFFS
 #define FILE_PHOTO "/photo.jpg"
 
-// Button Interrupts
+// Button Interrupt
 boolean isButtonPressed = false;
 // Flash
 boolean toggleFlash = false;
@@ -55,6 +55,7 @@ uint8_t isFlashOn = 1;
 #define PCLK_GPIO_NUM     22
 
 #define FLASH_PIN         4
+#define BUTTON_PIN        13  // Labelled IO13 on the board
 
 const char index_html[] PROGMEM = R"rawliteral(
 <!DOCTYPE HTML><html>
@@ -63,7 +64,7 @@ const char index_html[] PROGMEM = R"rawliteral(
   <style>
     body { text-align:center; }
     .vert { margin-bottom: 10%; }
-    .hori{ margin-bottom: 0%; }
+    .hori { margin-bottom: 0%; }
   </style>
 </head>
 <body>
@@ -75,7 +76,6 @@ const char index_html[] PROGMEM = R"rawliteral(
       <button onclick="capturePhoto()">CAPTURE PHOTO</button>
       <button onclick="location.reload();">REFRESH PAGE</button>
       <button onclick="toggleFlash();">TOGGLE FLASH</button>
-
     </p>
   </div>
   <div><img src="saved-photo" id="photo" width="70%"></div>
@@ -102,6 +102,15 @@ const char index_html[] PROGMEM = R"rawliteral(
   function isOdd(n) { return Math.abs(n % 2) == 1; }
 </script>
 </html>)rawliteral";
+
+
+// Interrupt Service Routine (ISR)
+// Use IRAM_ATTR so that the ISR is placed in IRAM (a requirement for ESP32)
+void IRAM_ATTR onButtonPress() {
+  takeNewPhoto = true;
+  detachInterrupt(digitalPinToInterrupt(BUTTON_PIN)); // temporarily disable interrupt
+}
+
 
 void setup() {
   // Serial port for debugging purposes
@@ -132,6 +141,10 @@ void setup() {
   // Flash Setup
   pinMode(FLASH_PIN, OUTPUT);
   digitalWrite(FLASH_PIN, LOW);
+
+  // Attach an interrupt to the button pin
+  // Trigger the ISR on a falling edge (when the button is pressed)
+  attachInterrupt(digitalPinToInterrupt(BUTTON_PIN), onButtonPress, FALLING);
 
   // OV2640 camera module
   camera_config_t config;
@@ -197,10 +210,12 @@ void setup() {
 
 }
 
+
 void loop() {
   if (takeNewPhoto) {
     capturePhotoSaveSpiffs();
     takeNewPhoto = false;
+    attachInterrupt(digitalPinToInterrupt(BUTTON_PIN), onButtonPress, FALLING); // re-enable interrupts
   }
   if (toggleFlash) {
     if (isFlashOn) {
