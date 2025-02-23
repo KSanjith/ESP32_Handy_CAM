@@ -18,9 +18,15 @@
 #include <SPIFFS.h>
 #include <FS.h>
 
-// Replace with your network credentials
+// Your network credentials
 const char* ssid = "Sanjith";
 const char* password = "awfq3737";
+IPAddress local_IP(192, 168, 232, 232);
+IPAddress gateway_address(192, 168, 232, 68);
+IPAddress subnet_mask(255, 255, 255, 0);
+IPAddress DNS_1(192, 168, 232, 68);
+IPAddress DNS_2(0, 0, 0, 0);
+// ESP32 CAM's MAC Address = 2C:BC:BB:85:36:F4
 
 // Create AsyncWebServer object on port 80
 AsyncWebServer server(80);
@@ -69,8 +75,8 @@ const char index_html[] PROGMEM = R"rawliteral(
 </head>
 <body>
   <div id="container">
-    <h2>ESP32-CAM Last Photo</h2>
-    <p>It might take more than 5 seconds to capture a photo.</p>
+    <h2>ESP32-CAM Page</h2>
+    <p>Wait a few seconds between photo capture and page refresh.</p>
     <p>
       <button onclick="rotatePhoto();">ROTATE</button>
       <button onclick="capturePhoto()">CAPTURE PHOTO</button>
@@ -78,7 +84,10 @@ const char index_html[] PROGMEM = R"rawliteral(
       <button onclick="toggleFlash();">TOGGLE FLASH</button>
     </p>
   </div>
-  <div><img src="saved-photo" id="photo" width="70%"></div>
+  <div>
+    <a href="saved-photo" download="ESP32_CAM_Pic.jpg">
+      <img src="saved-photo" id="photo" width="70%"></div>
+    </a>
 </body>
 <script>
   var deg = 0;
@@ -116,7 +125,11 @@ void setup() {
   // Serial port for debugging purposes
   Serial.begin(115200);
 
-  // Connect to Wi-Fi
+  // Assign a static IP Address
+  if (!WiFi.config(local_IP, gateway_address, subnet_mask, DNS_1, DNS_2)) {
+    Serial.println("Static wifi address configuration failed!");
+  }
+  // Connect to Wi-Fi using the Static IP Address
   WiFi.begin(ssid, password);
   while (WiFi.status() != WL_CONNECTED) {
     delay(1000);
@@ -131,7 +144,7 @@ void setup() {
     Serial.println("SPIFFS mounted successfully");
   }
 
-  // Print ESP32 Local IP Address
+  // Print ESP32's Static Local IP Address
   Serial.print("IP Address: http://");
   Serial.println(WiFi.localIP());
 
@@ -167,7 +180,7 @@ void setup() {
   config.pin_pwdn = PWDN_GPIO_NUM;
   config.pin_reset = RESET_GPIO_NUM;
   //config.xclk_freq_hz = 20000000; //Base Freq
-  config.xclk_freq_hz = 16000000;
+  config.xclk_freq_hz = 16000000; // Ideal Freq
   config.pixel_format = PIXFORMAT_JPEG;
 
   if (psramFound()) {
