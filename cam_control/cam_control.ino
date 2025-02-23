@@ -5,7 +5,10 @@
   The above copyright notice and this permission notice shall be included in all
   copies or substantial portions of the Software.
 *********/
+//#define SerialPrintEnable // Easy way to toggle Serial Print message
 
+#include <pgmspace.h>
+#include "website_html.h"
 #include "WiFi.h"
 #include "esp_camera.h"
 #include "esp_timer.h"
@@ -41,6 +44,8 @@ boolean isButtonPressed = false;
 // Flash
 boolean toggleFlash = false;
 uint8_t isFlashOn = 1;
+// Video Mode
+boolean enableVideo = false;
 
 // OV2640 camera module pins (CAMERA_MODEL_AI_THINKER)
 #define PWDN_GPIO_NUM     32
@@ -62,55 +67,6 @@ uint8_t isFlashOn = 1;
 
 #define FLASH_PIN         4
 #define BUTTON_PIN        13  // Labelled IO13 on the board
-
-const char index_html[] PROGMEM = R"rawliteral(
-<!DOCTYPE HTML><html>
-<head>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <style>
-    body { text-align:center; }
-    .vert { margin-bottom: 10%; }
-    .hori { margin-bottom: 0%; }
-  </style>
-</head>
-<body>
-  <div id="container">
-    <h2>ESP32-CAM Page</h2>
-    <p>Wait a few seconds between photo capture and page refresh.</p>
-    <p>
-      <button onclick="rotatePhoto();">ROTATE</button>
-      <button onclick="capturePhoto()">CAPTURE PHOTO</button>
-      <button onclick="location.reload();">REFRESH PAGE</button>
-      <button onclick="toggleFlash();">TOGGLE FLASH</button>
-    </p>
-  </div>
-  <div>
-    <a href="saved-photo" download="ESP32_CAM_Pic.jpg">
-      <img src="saved-photo" id="photo" width="70%"></div>
-    </a>
-</body>
-<script>
-  var deg = 0;
-  function capturePhoto() {
-    var xhr = new XMLHttpRequest();
-    xhr.open('GET', "/capture", true);
-    xhr.send();
-  }
-  function toggleFlash() {
-    var xhr = new XMLHttpRequest();
-    xhr.open('GET', "/flash", true);
-    xhr.send();
-  }
-  function rotatePhoto() {
-    var img = document.getElementById("photo");
-    deg += 90;
-    if(isOdd(deg/90)){ document.getElementById("container").className = "vert"; }
-    else{ document.getElementById("container").className = "hori"; }
-    img.style.transform = "rotate(" + deg + "deg)";
-  }
-  function isOdd(n) { return Math.abs(n % 2) == 1; }
-</script>
-</html>)rawliteral";
 
 
 // Interrupt Service Routine (ISR)
@@ -157,7 +113,7 @@ void setup() {
 
   // Attach an interrupt to the button pin
   // Trigger the ISR on a falling edge (when the button is pressed)
-  attachInterrupt(digitalPinToInterrupt(BUTTON_PIN), onButtonPress, FALLING);
+  attachInterrupt(digitalPinToInterrupt(BUTTON_PIN), onButtonPress, RISING);
 
   // OV2640 camera module
   camera_config_t config;
@@ -218,17 +174,31 @@ void setup() {
     request->send(200, "text/plain", "Toggling Flash");
   });
 
+  server.on("/videoON", HTTP_GET, [](AsyncWebServerRequest * request) {
+    enableVideo = true;
+    request->send(200, "text/plain", "Toggling Video");
+  });
+
+  server.on("/videoOFF", HTTP_GET, [](AsyncWebServerRequest * request) {
+    enableVideo = false;
+    request->send(200, "text/plain", "Toggling Video");
+  });
+
   // Start server
   server.begin();
-
 }
 
 
 void loop() {
+  while (enableVideo) {
+    capturePhotoSaveSpiffs();
+    delay(1);
+  }
+  
   if (takeNewPhoto) {
     capturePhotoSaveSpiffs();
     takeNewPhoto = false;
-    attachInterrupt(digitalPinToInterrupt(BUTTON_PIN), onButtonPress, FALLING); // re-enable interrupts
+    attachInterrupt(digitalPinToInterrupt(BUTTON_PIN), onButtonPress, RISING); // re-enable interrupts
   }
   if (toggleFlash) {
     if (isFlashOn) {
@@ -259,11 +229,15 @@ void capturePhotoSaveSpiffs( void ) {
 
   do {
     // Take a photo with the camera
+    #ifdef SerialPrintEnable
     Serial.println("Taking a photo...");
+    #endif
 
     fb = esp_camera_fb_get();
     if (!fb) {
+      #ifdef SerialPrintEnable
       Serial.println("Camera capture failed");
+      #endif
       return;
     }
 
@@ -273,15 +247,20 @@ void capturePhotoSaveSpiffs( void ) {
 
     // Insert the data in the photo file
     if (!file) {
+      #ifdef SerialPrintEnable
       Serial.println("Failed to open file in writing mode");
+      #endif
     }
     else {
       file.write(fb->buf, fb->len); // payload (image), payload length
+
+      #ifdef SerialPrintEnable
       Serial.print("The picture has been saved in ");
       Serial.print(FILE_PHOTO);
       Serial.print(" - Size: ");
       Serial.print(file.size());
       Serial.println(" bytes");
+      #endif
     }
     // Close the file
     file.close();
